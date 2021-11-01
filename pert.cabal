@@ -33,8 +33,13 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , blaze-html
+    , blaze-markup
+    , bytestring
     , containers
+    , shakespeare
     , text
+    , vector
   default-language: Haskell2010
 
 executable pert-exe
@@ -47,9 +52,14 @@ executable pert-exe
   build-depends:
       aeson
     , base >=4.7 && <5
+    , blaze-html
+    , blaze-markup
+    , bytestring
     , containers
     , pert
+    , shakespeare
     , text
+    , vector
   default-language: Haskell2010
 
 test-suite pert-test
@@ -63,7 +73,12 @@ test-suite pert-test
   build-depends:
       aeson
     , base >=4.7 && <5
+    , blaze-html
+    , blaze-markup
+    , bytestring
     , containers
     , pert
+    , shakespeare
     , text
+    , vector
   default-language: Haskell2010

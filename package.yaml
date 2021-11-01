@@ -23,7 +23,12 @@ dependencies:
 - base >= 4.7 && < 5
 - containers
 - text
+- bytestring
 - aeson
+- shakespeare
+- blaze-html
+- blaze-markup
+- vector
 
 library:
   source-dirs: src
