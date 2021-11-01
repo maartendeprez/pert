@@ -1,0 +1,62 @@
+{
+    "A": {
+	"descr": "A",
+	"duration": 2,
+	"dependsOn": []
+    },
+    "B": {
+	"descr": "B",
+	"duration": 4,
+	"dependsOn": ["A"]	
+    },
+    "C": {
+	"descr": "C",
+	"duration": 6,
+	"dependsOn": ["A"]	
+    },
+    "D": {
+	"descr": "D",
+	"duration": 8,
+	"dependsOn": ["B"]	
+    },
+    "E": {
+	"descr": "E",
+	"duration": 6,
+	"dependsOn": ["C"]	
+    },
+    "F": {
+	"descr": "F",
+	"duration": 10,
+	"dependsOn": ["C"]	
+    },
+    "G": {
+	"descr": "G",
+	"duration": 10,
+	"dependsOn": ["D", "E"]	
+    },
+    "H": {
+	"descr": "H",
+	"duration": 14,
+	"dependsOn": ["F"]	
+    },
+    "I": {
+	"descr": "I",
+	"duration": 8,
+	"dependsOn": ["G", "H"]	
+    },
+    "J": {
+	"descr": "J",
+	"duration": 12,
+	"dependsOn": ["G", "H"]	
+    },
+    "K": {
+	"descr": "K",
+	"duration": 4,
+	"dependsOn": ["I"]	
+    },
+    "L": {
+	"descr": "L",
+	"duration": 10,
+	"dependsOn": ["J"]	
+    }
+}
