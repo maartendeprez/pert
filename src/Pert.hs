@@ -2,10 +2,10 @@
            , OverloadedStrings #-}
 
 module Pert
-  ( ActivityId(..), NodeId(..), EdgeId(..)
+  ( Graph(..), ActivityId(..), NodeId(..), EdgeId(..)
   , Activity(..), Node(..), Edge(..)
   , ActivityMap, NodeMap, EdgeMap
-  , depGroups, depMap, nextMap, actEdges
+  , graph, depGroups, depMap, nextMap, actEdges
   , prevMap, edgeMap, nameNodes, nodeMap
   ) where
 
@@ -29,6 +29,12 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+
+data Graph = Graph
+  { grActivities :: ActivityMap
+  , grNodes :: NodeMap
+  , grEdges :: EdgeMap
+  } deriving (Generic, FromJSON, ToJSON)
 
 type ActivityMap = Map ActivityId Activity
 type NodeMap = Map NodeId Node
@@ -115,6 +121,19 @@ data Edge =
 type DepMap = Map ActivityId (Set ActivityId)
 type NextMap = Map (Set ActivityId) (Set ActivityId)
 type PrevMap = Map (Set ActivityId) (Set (Set ActivityId, Maybe ActivityId))
+
+
+graph :: ActivityMap -> Graph
+graph as = Graph{..}
+  where deps = depMap as
+        nodes = depGroups as deps
+        nexts = nextMap as deps
+        acts = actEdges deps nodes
+        prevs = prevMap acts nodes
+        names = nameNodes nodes
+        grNodes = nodeMap names prevs as
+        grEdges = edgeMap grNodes as prevs names
+        grActivities = as
 
 depMap :: ActivityMap -> DepMap
 depMap as = fmap deps as

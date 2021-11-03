@@ -133,37 +133,29 @@ cy.on('pan zoom resize', () => poppers.forEach(popper => popper.update()));
 main :: IO ()
 main = do
   Just activities <- decode <$> BL.getContents
+  let g@Graph{..} = graph activities
+      cyelems = makeCyElems g
+  TL.putStrLn $ renderHtml $ cypage cyelems grEdges activities
 
-  let deps = depMap activities
-      nodes = depGroups activities deps
-      nexts = nextMap activities deps
-      acts = actEdges deps nodes
-      prevs = prevMap acts nodes
-      names = nameNodes nodes
-      edges = edgeMap nodes' activities prevs names
-      nodes' = nodeMap names prevs activities
-      nodeName n = case names M.! n of NodeId n -> T.pack (show n)
-      nodeName' n = case n of NodeId n -> T.pack (show n)
-      cyelems = Array $ V.fromList
-        $ map (\(NodeId i, n) -> object
-                ["data" .= object
-                  [ "id" .= T.pack (show i)
-                  , "te" .= nodeEarliest n
-                  , "tl" .= nodeLatest n
-                  ]
-                ]) (M.toList nodes')
-        <> map (\(EdgeId i, e) -> object
-                 ["data" .= object
-                   [ "id" .= ("edge-" <> T.pack (show i))
-                   , "source" .= nodeName' (edgeFrom e)
-                   , "target" .= nodeName' (edgeTo e)
-                   , "activity" .= case edgeActivities e of
-                       [] -> "0"
-                       as -> T.intercalate ", " $ map (\(ActivityId t) -> t) as
-                   , "duration" .= duration activities (edgeActivities e)
-                   , "slack" .= (edgeLatestFinish e - edgeEarliestFinish e)
-                   , "critical" .= (edgeLatestFinish e == edgeEarliestFinish e)
-                   ]
-                 ]) (M.toList edges)
-
-  TL.putStrLn $ renderHtml $ cypage cyelems edges activities
+makeCyElems :: Graph -> Value
+makeCyElems Graph{..} = Array $ V.fromList
+  $ map (\(NodeId i, n) -> object
+          ["data" .= object
+            [ "id" .= T.pack (show i)
+            , "te" .= nodeEarliest n
+            , "tl" .= nodeLatest n
+            ]
+          ]) (M.toList grNodes)
+  <> map (\(EdgeId i, e) -> object
+           ["data" .= object
+             [ "id" .= ("edge-" <> T.pack (show i))
+             , "source" .= T.pack (show $ getNodeId $ edgeFrom e)
+             , "target" .= T.pack (show $ getNodeId $ edgeTo e)
+             , "activity" .= case edgeActivities e of
+                 [] -> "0"
+                 as -> T.intercalate ", " $ map (\(ActivityId t) -> t) as
+             , "duration" .= duration grActivities (edgeActivities e)
+             , "slack" .= (edgeLatestFinish e - edgeEarliestFinish e)
+             , "critical" .= (edgeLatestFinish e == edgeEarliestFinish e)
+             ]
+           ]) (M.toList grEdges)
