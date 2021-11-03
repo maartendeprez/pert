@@ -85,7 +85,7 @@ var cy = cytoscape({
       {
          selector: 'node',
             style: {
-               label: 'data(id)',
+               label: 'data(n)',
                'text-valign': 'center',
                'text-halign': 'center'
             }
@@ -139,18 +139,19 @@ main = do
 
 makeCyElems :: Graph -> Value
 makeCyElems Graph{..} = Array $ V.fromList
-  $ map (\(NodeId i, n) -> object
+  $ map (\(_, Node{..}) -> object
           ["data" .= object
-            [ "id" .= T.pack (show i)
-            , "te" .= nodeEarliest n
-            , "tl" .= nodeLatest n
+            [ "id" .= ("node-" <> T.pack (show nodeName))
+            , "n" .= T.pack (show nodeName)
+            , "te" .= nodeEarliest
+            , "tl" .= nodeLatest
             ]
           ]) (M.toList grNodes)
-  <> map (\(EdgeId i, e) -> object
+  <> map (\(i, e) -> object
            ["data" .= object
              [ "id" .= ("edge-" <> T.pack (show i))
-             , "source" .= T.pack (show $ getNodeId $ edgeFrom e)
-             , "target" .= T.pack (show $ getNodeId $ edgeTo e)
+             , "source" .= ("node-" <> T.pack (show $ nodeName $ grNodes M.! edgeFrom e))
+             , "target" .= ("node-" <> T.pack (show $ nodeName $ grNodes M.! edgeTo e))
              , "activity" .= case edgeActivities e of
                  [] -> "0"
                  as -> T.intercalate ", " $ map (\(ActivityId t) -> t) as
@@ -158,4 +159,4 @@ makeCyElems Graph{..} = Array $ V.fromList
              , "slack" .= (edgeLatestFinish e - edgeEarliestFinish e)
              , "critical" .= (edgeLatestFinish e == edgeEarliestFinish e)
              ]
-           ]) (M.toList grEdges)
+           ]) (zip [1..] $ M.elems grEdges)

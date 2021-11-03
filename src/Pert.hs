@@ -1,12 +1,11 @@
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass, RecordWildCards
-           , OverloadedStrings #-}
+           , OverloadedStrings, TupleSections #-}
 
 module Pert
-  ( Graph(..), ActivityId(..), NodeId(..), EdgeId(..)
-  , Activity(..), Node(..), Edge(..)
+  ( Graph(..), Activity(..), Node(..), Edge(..)
+  , ActivityId(..), NodeId(..), EdgeId(..)
   , ActivityMap, NodeMap, EdgeMap
-  , graph, depGroups, depMap, nextMap, actEdges
-  , prevMap, edgeMap, nameNodes, nodeMap
+  , graph
   ) where
 
 import GHC.Generics
@@ -17,6 +16,7 @@ import Data.Functor.Contravariant
 
 import Data.Char
 import Data.Maybe
+import Data.List
 import Data.Aeson
 
 import Data.Map.Strict (Map)
@@ -34,7 +34,7 @@ data Graph = Graph
   { grActivities :: ActivityMap
   , grNodes :: NodeMap
   , grEdges :: EdgeMap
-  } deriving (Generic, FromJSON, ToJSON)
+  } deriving Generic
 
 type ActivityMap = Map ActivityId Activity
 type NodeMap = Map NodeId Node
@@ -42,9 +42,9 @@ type EdgeMap = Map EdgeId Edge
 
 newtype ActivityId = ActivityId { getActivityId :: Text }
   deriving ( Show, Generic, Eq, Ord)
-newtype NodeId = NodeId { getNodeId :: Int }
+newtype NodeId = NodeId { getNodeId :: Set ActivityId }
   deriving ( Show, Generic, Eq, Ord)
-newtype EdgeId = EdgeId { getEdgeId :: Int }
+newtype EdgeId = EdgeId { getEdgeId :: (NodeId, NodeId) }
   deriving ( Show, Generic, Eq, Ord)
 
 instance FromJSONKey ActivityId where
@@ -56,26 +56,6 @@ instance FromJSON ActivityId where
 instance ToJSON ActivityId where
   toJSON     = toJSON . getActivityId
   toEncoding = toEncoding . getActivityId
-
-instance FromJSONKey NodeId where
-  fromJSONKey = fmap NodeId fromJSONKey 
-instance ToJSONKey NodeId where
-  toJSONKey = contramap getNodeId toJSONKey
-instance FromJSON NodeId where
-  parseJSON = fmap NodeId . parseJSON
-instance ToJSON NodeId where
-  toJSON     = toJSON . getNodeId
-  toEncoding = toEncoding . getNodeId
-
-instance FromJSONKey EdgeId where
-  fromJSONKey = fmap EdgeId fromJSONKey 
-instance ToJSONKey EdgeId where
-  toJSONKey = contramap getEdgeId toJSONKey
-instance FromJSON EdgeId where
-  parseJSON = fmap EdgeId . parseJSON
-instance ToJSON EdgeId where
-  toJSON     = toJSON . getEdgeId
-  toEncoding = toEncoding . getEdgeId
 
 
 data Activity =
@@ -103,9 +83,10 @@ data Node =
   Node
   { nodePrev :: [EdgeId]
   , nodeNext :: [EdgeId]
+  , nodeName :: Int
   , nodeEarliest :: Int
   , nodeLatest :: Int
-  } deriving (Generic, FromJSON, ToJSON)
+  }
 
 data Edge =
   Edge
@@ -116,91 +97,106 @@ data Edge =
   , edgeEarliestFinish :: Int
   , edgeLatestStart :: Int
   , edgeLatestFinish :: Int
-  } deriving (Generic, FromJSON, ToJSON)
+  }
 
-type DepMap = Map ActivityId (Set ActivityId)
-type NextMap = Map (Set ActivityId) (Set ActivityId)
-type PrevMap = Map (Set ActivityId) (Set (Set ActivityId, Maybe ActivityId))
+type PrevMap = Map NodeId (Set (NodeId, Maybe ActivityId))
 
 
 graph :: ActivityMap -> Graph
 graph as = Graph{..}
-  where deps = depMap as
+  where deps = getDeps as
         nodes = depGroups as deps
-        nexts = nextMap as deps
         acts = actEdges deps nodes
         prevs = prevMap acts nodes
-        names = nameNodes nodes
-        grNodes = nodeMap names prevs as
-        grEdges = edgeMap grNodes as prevs names
+        grNodes = nodeMap nodes prevs as
+        grEdges = edgeMap grNodes as prevs
         grActivities = as
 
-depMap :: ActivityMap -> DepMap
-depMap as = fmap deps as
-  where deps a = foldr S.union (actDependsOn a)
-          $ map (\a -> deps $ as M.! a)
-          $ S.toList $ actDependsOn a
+{-|
+Map each activity to the set of all its
+direct and indirect dependencies.
+-}
+getDeps :: ActivityMap -> Map ActivityId NodeId
+getDeps as = fmap (NodeId . deps) as
+  where deps Activity{..} = foldr S.union actDependsOn
+          $ S.map (\a -> deps (as M.! a)) actDependsOn
 
-depGroups :: ActivityMap -> DepMap -> Set (Set ActivityId)
+depGroups :: ActivityMap -> Map ActivityId NodeId -> Set NodeId
 depGroups as ds = addIntersections $ S.insert finish deps
   where deps = S.fromList $ M.elems ds
-        finish = M.keysSet as
+        finish = NodeId $ M.keysSet as
 
-addIntersections :: Set (Set ActivityId) -> Set (Set ActivityId)
+addIntersections :: Set NodeId -> Set NodeId
 addIntersections ds = S.fromList $ concatMap intersections $ S.toList ds
-  where intersections d = map (S.intersection d) $ S.toList ds
+  where intersections d = map (intersection d) $ S.toList ds
+        intersection (NodeId a) (NodeId b) = NodeId
+          $ a `S.intersection` b
 
-nextMap :: ActivityMap -> DepMap -> NextMap
-nextMap as ds = foldr (\(k,v) -> M.insertWith S.union v (S.singleton k)) (M.singleton finish S.empty) (M.toList ds)
-  where finish = M.keysSet as
-
-nameNodes :: Set (Set ActivityId) -> Map (Set ActivityId) NodeId
-nameNodes ds = M.fromList $ zip (S.toList ds) (map NodeId [1..])
-
-actEdges :: DepMap -> Set (Set ActivityId) -> Map ActivityId (Set ActivityId, Set ActivityId)
+actEdges :: Map ActivityId NodeId -> Set NodeId -> Map ActivityId EdgeId
 actEdges ds ns = M.mapWithKey edge ds
-  where edge a from = (from, to)
-          where done = S.insert a from
-                tos = filter (done `S.isSubsetOf`) $ S.toList ns
-                to = head $ filter (\c -> not (any (`S.isProperSubsetOf` c) tos)) tos
+  where edge a from = EdgeId (from, to)
+          where done = S.insert a $ getNodeId from
+                tos = filter (\(NodeId n) -> done `S.isSubsetOf` n)
+                  $ S.toList ns
+                to = head $ filter (not . after tos) tos
 
-prevMap :: Map ActivityId (Set ActivityId, Set ActivityId) -> Set (Set ActivityId) -> PrevMap
+isProperSubsetOf :: NodeId -> NodeId -> Bool
+NodeId a `isProperSubsetOf` NodeId b = a `S.isProperSubsetOf` b
+
+after :: [NodeId] -> NodeId -> Bool
+after ns n = any (`isProperSubsetOf` n) ns
+
+before :: [NodeId] -> NodeId -> Bool
+before ns n = any (n `isProperSubsetOf`) ns
+
+prevMap :: Map ActivityId EdgeId -> Set NodeId -> PrevMap
 prevMap es ns = M.fromSet prev ns
-  where prev n = acts `S.union` S.fromList (map (\n -> (n, Nothing)) dummies)
+  where dests = foldr dest M.empty $ M.toList es
+        dest (a, EdgeId (f,t)) = M.insertWith S.union t
+                                 (S.singleton (f, Just a))
+        prev n = acts `S.union` S.fromList (map (,Nothing) dummies)
           where acts = fromMaybe S.empty $ M.lookup n dests
-                froms = filter (\n -> not (S.null n) && n `S.isSubsetOf` missing) $ S.toList ns
-                dummies = filter (\n -> not (any (n `S.isProperSubsetOf`) froms)) froms
-                missing = n `S.difference` (foldr S.union S.empty $ map (\(f, Just a) -> S.insert a f) $ S.toList acts)
-        dests = foldr (\(a,(f,t)) -> M.insertWith S.union t (S.singleton (f, Just a))) M.empty $ M.toList es
+                dummies = filter (not . before froms) froms
+                froms = filter isMissing $ S.toList ns
+                isMissing (NodeId n) = not (S.null n)
+                  && n `S.isSubsetOf` missing
+                missing = getNodeId n `S.difference` found
+                found = foldr S.union S.empty
+                  $ map (\(NodeId f, Just a) -> S.insert a f)
+                  $ S.toList acts
 
-edgeMap :: NodeMap -> ActivityMap -> PrevMap -> Map (Set ActivityId) NodeId -> EdgeMap
-edgeMap nodes acts ps ns = M.fromList $ zip (map EdgeId [1..])
-  $ map (\(t,(f,a)) -> Edge { edgeFrom = ns M.! f
-                            , edgeTo = ns M.! t
-                            , edgeActivities = maybeToList a
-                            , edgeEarliestStart = nodeEarliest (nodes M.! (ns M.! f))
-                            , edgeEarliestFinish = nodeEarliest (nodes M.! (ns M.! f)) + maybe 0 (\a -> actDuration (acts M.! a)) a
-                            , edgeLatestStart = nodeLatest (nodes M.! (ns M.! t)) - maybe 0 (\a -> actDuration (acts M.! a)) a
-                            , edgeLatestFinish = nodeLatest (nodes M.! (ns M.! t))
-                            })
-  $ concatMap (\(t,es) -> map (\e -> (t,e)) $ S.toList es)
+edgeMap :: NodeMap -> ActivityMap -> PrevMap -> EdgeMap
+edgeMap nodes acts ps = M.fromList
+  $ map (\(t,(f,a)) -> (EdgeId (f,t), Edge
+                         { edgeFrom = f
+                         , edgeTo = t
+                         , edgeActivities = maybeToList a
+                         , edgeEarliestStart = nodeEarliest (nodes M.! f)
+                         , edgeEarliestFinish = nodeEarliest (nodes M.! f) + maybe 0 (\a -> actDuration (acts M.! a)) a
+                         , edgeLatestStart = nodeLatest (nodes M.! t) - maybe 0 (\a -> actDuration (acts M.! a)) a
+                         , edgeLatestFinish = nodeLatest (nodes M.! t)
+                         }))
+  $ concatMap (\(t,es) -> map (t,) $ S.toList es)
   $ M.toList ps
 
-nodeMap :: Map (Set ActivityId) NodeId -> PrevMap -> ActivityMap -> NodeMap
-nodeMap ns prevs acts = M.fromList $ map makeNode (M.toList ns)
-  where makeNode (n,id) = (id, Node
-                            { nodePrev = []
-                            , nodeNext = []
-                            , nodeLatest = latest n
-                            , nodeEarliest = earliest n
-                            })
-        expected = earliest $ M.keysSet acts
+nodeMap :: Set NodeId -> PrevMap -> ActivityMap -> NodeMap
+nodeMap ns prevs acts = M.fromList $ map makeNode $ S.toList ns
+  where makeNode n = (n, Node
+                         { nodePrev = []
+                         , nodeNext = []
+                         , nodeName = names M.! n
+                         , nodeLatest = latest n
+                         , nodeEarliest = earliest n
+                         })
+        finish = NodeId $ M.keysSet acts
+        expected = earliest finish
+        names = M.fromList $ zip (sortOn earliest $ S.toList ns) [1..]
         earliest n = foldr max 0
           $ map (\(n,a) -> earliest n + maybe 0 (\a -> actDuration (acts M.! a)) a)
           $ S.toList (prevs M.! n)
         latest n = foldr min expected
           $ map (\(n,a) -> latest n - maybe 0 (\a -> actDuration (acts M.! a)) a)
           $ S.toList (nexts M.! n)
-        nexts = foldr (\(f,v) -> M.insertWith S.union f (S.singleton v)) (M.singleton (M.keysSet acts) S.empty)
+        nexts = foldr (\(f,v) -> M.insertWith S.union f (S.singleton v)) (M.singleton finish S.empty)
           $ concatMap (\(t,ps) -> map (\(f,a) -> (f,(t,a))) (S.toList ps))
           $ M.toList prevs
