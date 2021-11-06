@@ -31,8 +31,8 @@ import qualified Data.ByteString.Lazy as BL
 import Data.List
 import Data.Maybe
 
-cypage :: Value -> EdgeMap -> ActivityMap -> Html
-cypage elems edges acts = [shamlet|
+cypage :: Graph -> Html
+cypage g@Graph{..} = [shamlet|
 $doctype 5
 <html>
    <head>
@@ -45,42 +45,38 @@ $doctype 5
       <script src="https://unpkg.com/cytoscape-popper">
    <body>
       <div #cy style="position: absolute; top: 10px; bottom: 10px; left: 10px; right: 10px;">
-      <script>#{cyscript elems}
-      <table style="position: absolute; top: 10px; bottom: 10px; left: 67%; right: 10px;">
-         <thead>
-            <th>Activity
-            <th>Duration
-            <th>ES
-            <th>LS
-            <th>LS
-            <th>LF
-            <th>Slack
-         $forall Edge{..} <- nonDummies edges
-           <tr>
-               <td>#{actNames acts edgeActivities}
-               <td>#{duration acts edgeActivities}
-               <td>#{edgeEarliestStart}
-               <td>#{edgeLatestStart}
-               <td>#{edgeEarliestFinish}
-               <td>#{edgeLatestFinish}
-               <td>#{edgeLatestFinish - edgeEarliestFinish}
+      <script>#{cyscript g}
+      <div style="position: absolute; top: 10px; bottom: 10px; left: 67%; right: 10px;">
+         <p>Expected completion = #{round' grExpected}<br/>
+            σ² = #{round' grExpectedSigmaSq}
+         <table>
+            <thead>
+               <th>Activity
+               <th>Duration
+               <th>σ²
+               <th>ES
+               <th>LS
+               <th>LS
+               <th>LF
+               <th>Slack
+            $forall Edge{..} <- nonDummies grEdges
+               <tr>
+                  <td>#{actNames grActivities edgeActivities}
+                  <td>#{round' edgeDuration}
+                  <td>#{round' edgeDurationSigmaSq}
+                  <td>#{round' edgeEarliestStart}
+                  <td>#{round' edgeLatestStart}
+                  <td>#{round' edgeEarliestFinish}
+                  <td>#{round' edgeLatestFinish}
+                  <td>#{round' edgeSlack}
 |]
 
-nonDummies :: EdgeMap -> [Edge]
-nonDummies = sortBy (compare `on` ((\(ActivityId t) -> t) . head . edgeActivities)) . filter (not . null . edgeActivities) . M.elems
-  
-actNames :: ActivityMap -> [ActivityId] -> T.Text
-actNames acts = T.intercalate ", " . map (\(ActivityId t) -> t) 
-  
-duration :: ActivityMap -> [ActivityId] -> Int
-duration acts = foldr max 0 . map (actDuration . (acts M.!)) 
-  
-cyscript :: Value -> Html
-cyscript elems = preEscapedToMarkup $ renderJavascriptUrl undefined
+cyscript :: Graph -> Html
+cyscript g = preEscapedToMarkup $ renderJavascriptUrl undefined
   $ [julius|
 var cy = cytoscape({
    container: document.getElementById('cy'),
-   elements: #{elems},
+   elements: #{cyelems g},
    style: [
       {
          selector: 'node',
@@ -118,8 +114,10 @@ const poppers = cy.nodes().map(node => {
    const popper = node.popper({
       content: () => {
          let div = document.createElement('div');
-         div.innerHTML = '(' + node.data()['te'].toString()
-            + ' - ' + node.data()['tl'].toString() + ')';
+         const te = node.data()['te'];
+         const tl = node.data()['tl'];
+         div.innerHTML = '(' + (te === tl ? te.toString()
+            : te.toString() + ' - ' + tl.toString()) + ')';
          document.body.appendChild(div);
          return div;
       },
@@ -131,33 +129,46 @@ const poppers = cy.nodes().map(node => {
 cy.on('pan zoom resize', () => poppers.forEach(popper => popper.update()));
 |]
 
-main :: IO ()
-main = do
-  Just activities <- decode <$> BL.getContents
-  let g@Graph{..} = graph activities
-      cyelems = makeCyElems g
-  TL.putStrLn $ renderHtml $ cypage cyelems grEdges activities
-
-makeCyElems :: Graph -> Value
-makeCyElems Graph{..} = Array $ V.fromList
+cyelems :: Graph -> Value
+cyelems Graph{..} = Array $ V.fromList
   $ map (\(_, Node{..}) -> object
           ["data" .= object
             [ "id" .= ("node-" <> T.pack (show nodeName))
             , "n" .= T.pack (show nodeName)
-            , "te" .= nodeEarliest
-            , "tl" .= nodeLatest
+            , "te" .= round' nodeEarliest
+            , "tl" .= round' nodeLatest
             ]
           ]) (M.toList grNodes)
-  <> map (\(i, e) -> object
+  <> map (\(i, Edge{..}) -> object
            ["data" .= object
              [ "id" .= ("edge-" <> T.pack (show i))
-             , "source" .= ("node-" <> T.pack (show $ nodeName $ grNodes M.! edgeFrom e))
-             , "target" .= ("node-" <> T.pack (show $ nodeName $ grNodes M.! edgeTo e))
-             , "activity" .= case edgeActivities e of
+             , "source" .= ("node-" <> T.pack (show $ nodeName $ grNodes M.! edgeFrom))
+             , "target" .= ("node-" <> T.pack (show $ nodeName $ grNodes M.! edgeTo))
+             , "activity" .= case edgeActivities of
                  [] -> "0"
                  as -> T.intercalate ", " $ map (\(ActivityId t) -> t) as
-             , "duration" .= duration grActivities (edgeActivities e)
-             , "slack" .= (edgeLatestFinish e - edgeEarliestFinish e)
-             , "critical" .= (edgeLatestFinish e == edgeEarliestFinish e)
+             , "duration" .= round' edgeDuration
+             , "sigmasq" .= round' edgeDurationSigmaSq
+             , "slack" .= round' edgeSlack
+             , "critical" .= (abs (edgeLatestFinish - edgeEarliestFinish)
+                              < 0.01 )
              ]
            ]) (zip [1..] $ M.elems grEdges)
+
+nonDummies :: EdgeMap -> [Edge]
+nonDummies = sortBy (compare `on` ((\(ActivityId t) -> t) . head . edgeActivities)) . filter (not . null . edgeActivities) . M.elems
+  
+actNames :: ActivityMap -> [ActivityId] -> T.Text
+actNames acts = T.intercalate ", " . map (\(ActivityId t) -> t) 
+
+duration :: ActivityMap -> [ActivityId] -> Double
+duration acts = foldr max 0 . map (actDuration . (acts M.!))
+
+round' :: Double -> Double
+round' n = fromIntegral (round $ n * 100) / 100 
+
+main :: IO ()
+main = do
+  Just activities <- decode <$> BL.getContents
+  let g = graph activities
+  TL.putStrLn $ renderHtml $ cypage g
