@@ -44,11 +44,10 @@ $doctype 5
       <script src="https://unpkg.com/@popperjs/core">
       <script src="https://unpkg.com/cytoscape-popper">
    <body>
-      <div #cy style="position: absolute; top: 10px; bottom: 10px; left: 10px; right: 10px;">
-      <script>#{cyscript g}
       <div style="position: absolute; top: 10px; bottom: 10px; left: 67%; right: 10px;">
-         <p>Expected completion = #{round' grExpected}<br/>
-            σ² = #{round' grExpectedSigmaSq}
+         <p>Expected completion = #{round' grExpected}<br />
+            σ² = #{round' grExpectedSigmaSq}<br />
+            σ = #{round' (sqrt grExpectedSigmaSq)}
          <table>
             <thead>
                <th>Activity
@@ -69,6 +68,8 @@ $doctype 5
                   <td>#{round' edgeEarliestFinish}
                   <td>#{round' edgeLatestFinish}
                   <td>#{round' edgeSlack}
+      <div #cy style="position: absolute; top: 10px; bottom: 10px; left: 10px; right: 33%;">
+      <script>#{cyscript g}
 |]
 
 cyscript :: Graph -> Html
