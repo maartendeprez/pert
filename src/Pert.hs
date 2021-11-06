@@ -237,13 +237,14 @@ Construct the final node map.
 -}
 nodeMap :: Set NodeId -> PrevMap -> ActivityMap -> NodeMap
 nodeMap ns prevs acts = M.fromList $ map node $ S.toList ns
-  where node n = (n, Node
-                     { nodePrev = []
-                     , nodeNext = []
-                     , nodeName = names M.! n
-                     , nodeLatest = latests M.! n
-                     , nodeEarliest = earliests M.! n
-                     })
+  where node n = (n, Node{..})
+          where nodePrev = map (\f -> EdgeId (f,n))
+                           $ M.keys $ prevs M.! n
+                nodeNext = map (\t -> EdgeId (n,t))
+                           $ M.keys $ nexts M.! n
+                nodeName = names M.! n
+                nodeLatest = latests M.! n
+                nodeEarliest = earliests M.! n
         finish = NodeId $ M.keysSet acts
         nexts = nextMap prevs finish
         expected = earliest finish
