@@ -95,7 +95,8 @@ var cy = cytoscape({
          style: {
             'curve-style': 'straight',
             'target-arrow-shape': 'triangle',
-            'label': 'data(activity)'
+            'label': 'data(activity)',
+            'text-margin-y': '15',
             //'edge-text-rotation': 'autorotate',
          }
       },
