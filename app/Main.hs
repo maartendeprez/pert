@@ -56,7 +56,7 @@ $doctype 5
                <th>σ²
                <th>ES
                <th>LS
-               <th>LS
+               <th>EF
                <th>LF
                <th>Slack
             $forall Edge{..} <- nonDummies grEdges
